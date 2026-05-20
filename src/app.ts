@@ -2,6 +2,9 @@ import cors from "cors";
 import express from "express";
 import type { Request, Response } from "express";
 
+import errorMiddleware from "./middleware/error.middleware.js";
+import { AuthRoutes } from "./modules/auth/auth.routes.js";
+
 const app = express();
 
 app.use(cors());
@@ -13,5 +16,9 @@ app.get("/", (_req: Request, res: Response) => {
     message: "DevPulse API is running",
   });
 });
+
+app.use("/api/auth", AuthRoutes);
+
+app.use(errorMiddleware);
 
 export default app;
