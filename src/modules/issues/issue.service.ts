@@ -4,6 +4,8 @@ import { pool } from "../../config/db.js";
 import AppError from "../../utils/AppError.js";
 
 type IssueType = "bug" | "feature_request";
+type IssueStatus = "open" | "in_progress" | "resolved";
+type UserRole = "contributor" | "maintainer";
 
 interface CreateIssuePayload {
   title: string;
@@ -11,10 +13,23 @@ interface CreateIssuePayload {
   type: IssueType;
 }
 
+interface RequestUser {
+  id: number;
+  name: string;
+  role: UserRole;
+}
+
+interface UpdateIssuePayload {
+  title?: string;
+  description?: string;
+  type?: IssueType;
+  status?: IssueStatus;
+}
+
 const createIssue = async (payload: CreateIssuePayload, reporterId: number) => {
   const { title, description, type } = payload;
 
-  if (!title || !description || !type) {
+  if (!title?.trim() || !description?.trim() || !type) {
     throw new AppError(
       StatusCodes.BAD_REQUEST,
       "Title, description and type are required",
@@ -28,7 +43,7 @@ const createIssue = async (payload: CreateIssuePayload, reporterId: number) => {
     );
   }
 
-  if (description.length < 20) {
+  if (description.trim().length < 20) {
     throw new AppError(
       StatusCodes.BAD_REQUEST,
       "Description must be at least 20 characters",
@@ -57,7 +72,7 @@ const createIssue = async (payload: CreateIssuePayload, reporterId: number) => {
     `INSERT INTO issues (title, description, type, reporter_id)
      VALUES ($1, $2, $3, $4)
      RETURNING id, title, description, type, status, reporter_id, created_at, updated_at`,
-    [title, description, type, reporterId],
+    [title.trim(), description.trim(), type, reporterId],
   );
 
   return result.rows[0];
@@ -81,11 +96,19 @@ const getAllIssues = async (sort: string, type?: string, status?: string) => {
   const values: string[] = [];
 
   if (type) {
+    if (!["bug", "feature_request"].includes(type)) {
+      throw new AppError(StatusCodes.BAD_REQUEST, "Invalid issue type");
+    }
+
     values.push(type);
     conditions.push(`type = $${values.length}`);
   }
 
   if (status) {
+    if (!["open", "in_progress", "resolved"].includes(status)) {
+      throw new AppError(StatusCodes.BAD_REQUEST, "Invalid issue status");
+    }
+
     values.push(status);
     conditions.push(`status = $${values.length}`);
   }
@@ -99,7 +122,6 @@ const getAllIssues = async (sort: string, type?: string, status?: string) => {
   `;
 
   const issueResult = await pool.query(query, values);
-
   const issues = issueResult.rows;
 
   if (issues.length === 0) {
@@ -119,7 +141,7 @@ const getAllIssues = async (sort: string, type?: string, status?: string) => {
 
   const users = userResult.rows;
 
-  const issuesWithReporter = issues.map((issue) => {
+  return issues.map((issue) => {
     const reporter = users.find((user) => user.id === issue.reporter_id);
 
     return {
@@ -133,8 +155,6 @@ const getAllIssues = async (sort: string, type?: string, status?: string) => {
       updated_at: issue.updated_at,
     };
   });
-
-  return issuesWithReporter;
 };
 
 const getSingleIssue = async (id: number) => {
@@ -176,21 +196,6 @@ const getSingleIssue = async (id: number) => {
   };
 };
 
-type UserRole = "contributor" | "maintainer";
-
-
-interface RequestUser {
-  id: number;
-  name: string;
-  role: UserRole;
-}
-
-interface UpdateIssuePayload {
-  title?: string;
-  description?: string;
-  type?: IssueType;
-}
-
 const updateIssue = async (
   issueId: number,
   payload: UpdateIssuePayload,
@@ -220,11 +225,22 @@ const updateIssue = async (
         "Only open issues can be updated by contributor",
       );
     }
+
+    if (payload.status) {
+      throw new AppError(
+        StatusCodes.FORBIDDEN,
+        "Only maintainer can update issue status",
+      );
+    }
   }
 
   const title = payload.title ?? issue.title;
   const description = payload.description ?? issue.description;
   const type = payload.type ?? issue.type;
+  const status =
+    user.role === "maintainer"
+      ? (payload.status ?? issue.status)
+      : issue.status;
 
   if (!title?.trim()) {
     throw new AppError(StatusCodes.BAD_REQUEST, "Title is required");
@@ -252,26 +268,6 @@ const updateIssue = async (
     throw new AppError(StatusCodes.BAD_REQUEST, "Invalid issue type");
   }
 
-  const result = await pool.query(
-    `
-      UPDATE issues
-      SET title = $1,
-          description = $2,
-          type = $3,
-          updated_at = CURRENT_TIMESTAMP
-      WHERE id = $4
-      RETURNING id, title, description, type, status, reporter_id, created_at, updated_at
-    `,
-    [title, description, type, issueId],
-  );
-
-  return result.rows[0];
-};
-
-
-type IssueStatus = "open" | "in_progress" | "resolved";
-
-const updateIssueStatus = async (issueId: number, status: IssueStatus) => {
   if (!["open", "in_progress", "resolved"].includes(status)) {
     throw new AppError(StatusCodes.BAD_REQUEST, "Invalid issue status");
   }
@@ -279,19 +275,35 @@ const updateIssueStatus = async (issueId: number, status: IssueStatus) => {
   const result = await pool.query(
     `
       UPDATE issues
-      SET status = $1,
+      SET title = $1,
+          description = $2,
+          type = $3,
+          status = $4,
           updated_at = CURRENT_TIMESTAMP
-      WHERE id = $2
+      WHERE id = $5
       RETURNING id, title, description, type, status, reporter_id, created_at, updated_at
     `,
-    [status, issueId],
+    [title.trim(), description.trim(), type, status, issueId],
+  );
+
+  return result.rows[0];
+};
+
+const deleteIssue = async (issueId: number) => {
+  const result = await pool.query(
+    `
+      DELETE FROM issues
+      WHERE id = $1
+      RETURNING id
+    `,
+    [issueId],
   );
 
   if (result.rows.length === 0) {
     throw new AppError(StatusCodes.NOT_FOUND, "Issue not found");
   }
 
-  return result.rows[0];
+  return null;
 };
 
 export const IssueService = {
@@ -299,6 +311,6 @@ export const IssueService = {
   getAllIssues,
   getSingleIssue,
   updateIssue,
-  updateIssueStatus,
+  deleteIssue,
 };
 

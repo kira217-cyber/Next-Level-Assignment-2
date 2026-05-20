@@ -22,9 +22,7 @@ const createIssue = catchAsync(async (req, res) => {
 
 const getAllIssues = catchAsync(async (req, res) => {
   const sort = typeof req.query.sort === "string" ? req.query.sort : "newest";
-
   const type = typeof req.query.type === "string" ? req.query.type : undefined;
-
   const status =
     typeof req.query.status === "string" ? req.query.status : undefined;
 
@@ -66,17 +64,13 @@ const updateIssue = catchAsync(async (req, res) => {
   });
 });
 
-const updateIssueStatus = catchAsync(async (req, res) => {
-  const issue = await IssueService.updateIssueStatus(
-    Number(req.params.id),
-    req.body.status,
-  );
+const deleteIssue = catchAsync(async (req, res) => {
+  await IssueService.deleteIssue(Number(req.params.id));
 
   sendResponse(res, {
     success: true,
     statusCode: StatusCodes.OK,
-    message: "Issue status updated successfully",
-    data: issue,
+    message: "Issue deleted successfully",
   });
 });
 
@@ -85,6 +79,5 @@ export const IssueController = {
   getAllIssues,
   getSingleIssue,
   updateIssue,
-  updateIssueStatus,
+  deleteIssue,
 };
-

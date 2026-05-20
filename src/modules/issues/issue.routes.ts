@@ -10,11 +10,11 @@ router.post("/", authMiddleware, IssueController.createIssue);
 router.get("/", IssueController.getAllIssues);
 router.get("/:id", IssueController.getSingleIssue);
 router.patch("/:id", authMiddleware, IssueController.updateIssue);
-router.patch(
-  "/:id/status",
+router.delete(
+  "/:id",
   authMiddleware,
   roleMiddleware("maintainer"),
-  IssueController.updateIssueStatus,
+  IssueController.deleteIssue,
 );
 
 export const IssueRoutes = router;
