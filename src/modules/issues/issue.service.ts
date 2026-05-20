@@ -63,11 +63,7 @@ const createIssue = async (payload: CreateIssuePayload, reporterId: number) => {
   return result.rows[0];
 };
 
-const getAllIssues = async (
-  sort: string,
-  type?: string,
-  status?: string,
-) => {
+const getAllIssues = async (sort: string, type?: string, status?: string) => {
   let query = `
     SELECT
       id,
@@ -99,9 +95,7 @@ const getAllIssues = async (
   }
 
   query += `
-    ORDER BY created_at ${
-      sort === "oldest" ? "ASC" : "DESC"
-    }
+    ORDER BY created_at ${sort === "oldest" ? "ASC" : "DESC"}
   `;
 
   const issueResult = await pool.query(query, values);
@@ -112,9 +106,7 @@ const getAllIssues = async (
     return [];
   }
 
-  const reporterIds = [
-    ...new Set(issues.map((issue) => issue.reporter_id)),
-  ];
+  const reporterIds = [...new Set(issues.map((issue) => issue.reporter_id))];
 
   const userResult = await pool.query(
     `
@@ -128,9 +120,7 @@ const getAllIssues = async (
   const users = userResult.rows;
 
   const issuesWithReporter = issues.map((issue) => {
-    const reporter = users.find(
-      (user) => user.id === issue.reporter_id,
-    );
+    const reporter = users.find((user) => user.id === issue.reporter_id);
 
     return {
       id: issue.id,
@@ -186,8 +176,129 @@ const getSingleIssue = async (id: number) => {
   };
 };
 
+type UserRole = "contributor" | "maintainer";
+
+
+interface RequestUser {
+  id: number;
+  name: string;
+  role: UserRole;
+}
+
+interface UpdateIssuePayload {
+  title?: string;
+  description?: string;
+  type?: IssueType;
+}
+
+const updateIssue = async (
+  issueId: number,
+  payload: UpdateIssuePayload,
+  user: RequestUser,
+) => {
+  const issueResult = await pool.query(`SELECT * FROM issues WHERE id = $1`, [
+    issueId,
+  ]);
+
+  const issue = issueResult.rows[0];
+
+  if (!issue) {
+    throw new AppError(StatusCodes.NOT_FOUND, "Issue not found");
+  }
+
+  if (user.role !== "maintainer") {
+    if (issue.reporter_id !== user.id) {
+      throw new AppError(
+        StatusCodes.FORBIDDEN,
+        "You can only update your own issue",
+      );
+    }
+
+    if (issue.status !== "open") {
+      throw new AppError(
+        StatusCodes.CONFLICT,
+        "Only open issues can be updated by contributor",
+      );
+    }
+  }
+
+  const title = payload.title ?? issue.title;
+  const description = payload.description ?? issue.description;
+  const type = payload.type ?? issue.type;
+
+  if (!title?.trim()) {
+    throw new AppError(StatusCodes.BAD_REQUEST, "Title is required");
+  }
+
+  if (title.length > 150) {
+    throw new AppError(
+      StatusCodes.BAD_REQUEST,
+      "Title cannot exceed 150 characters",
+    );
+  }
+
+  if (!description?.trim()) {
+    throw new AppError(StatusCodes.BAD_REQUEST, "Description is required");
+  }
+
+  if (description.trim().length < 20) {
+    throw new AppError(
+      StatusCodes.BAD_REQUEST,
+      "Description must be at least 20 characters",
+    );
+  }
+
+  if (!["bug", "feature_request"].includes(type)) {
+    throw new AppError(StatusCodes.BAD_REQUEST, "Invalid issue type");
+  }
+
+  const result = await pool.query(
+    `
+      UPDATE issues
+      SET title = $1,
+          description = $2,
+          type = $3,
+          updated_at = CURRENT_TIMESTAMP
+      WHERE id = $4
+      RETURNING id, title, description, type, status, reporter_id, created_at, updated_at
+    `,
+    [title, description, type, issueId],
+  );
+
+  return result.rows[0];
+};
+
+
+type IssueStatus = "open" | "in_progress" | "resolved";
+
+const updateIssueStatus = async (issueId: number, status: IssueStatus) => {
+  if (!["open", "in_progress", "resolved"].includes(status)) {
+    throw new AppError(StatusCodes.BAD_REQUEST, "Invalid issue status");
+  }
+
+  const result = await pool.query(
+    `
+      UPDATE issues
+      SET status = $1,
+          updated_at = CURRENT_TIMESTAMP
+      WHERE id = $2
+      RETURNING id, title, description, type, status, reporter_id, created_at, updated_at
+    `,
+    [status, issueId],
+  );
+
+  if (result.rows.length === 0) {
+    throw new AppError(StatusCodes.NOT_FOUND, "Issue not found");
+  }
+
+  return result.rows[0];
+};
+
 export const IssueService = {
   createIssue,
   getAllIssues,
   getSingleIssue,
+  updateIssue,
+  updateIssueStatus,
 };
+

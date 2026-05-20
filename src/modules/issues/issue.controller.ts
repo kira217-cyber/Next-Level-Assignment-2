@@ -47,8 +47,44 @@ const getSingleIssue = catchAsync(async (req, res) => {
   });
 });
 
+const updateIssue = catchAsync(async (req, res) => {
+  if (!req.user) {
+    throw new AppError(StatusCodes.UNAUTHORIZED, "User is not authenticated");
+  }
+
+  const issue = await IssueService.updateIssue(
+    Number(req.params.id),
+    req.body,
+    req.user,
+  );
+
+  sendResponse(res, {
+    success: true,
+    statusCode: StatusCodes.OK,
+    message: "Issue updated successfully",
+    data: issue,
+  });
+});
+
+const updateIssueStatus = catchAsync(async (req, res) => {
+  const issue = await IssueService.updateIssueStatus(
+    Number(req.params.id),
+    req.body.status,
+  );
+
+  sendResponse(res, {
+    success: true,
+    statusCode: StatusCodes.OK,
+    message: "Issue status updated successfully",
+    data: issue,
+  });
+});
+
 export const IssueController = {
   createIssue,
   getAllIssues,
   getSingleIssue,
+  updateIssue,
+  updateIssueStatus,
 };
+
