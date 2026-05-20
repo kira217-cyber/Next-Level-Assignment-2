@@ -4,6 +4,8 @@ import type { Request, Response } from "express";
 
 import errorMiddleware from "./middleware/error.middleware.js";
 import { AuthRoutes } from "./modules/auth/auth.routes.js";
+import { IssueRoutes } from "./modules/issues/issue.routes.js";
+
 
 const app = express();
 
@@ -18,6 +20,7 @@ app.get("/", (_req: Request, res: Response) => {
 });
 
 app.use("/api/auth", AuthRoutes);
+app.use("/api/issues", IssueRoutes);
 
 app.use(errorMiddleware);
 
